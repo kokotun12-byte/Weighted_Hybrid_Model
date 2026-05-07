@@ -20,7 +20,9 @@ def load_artifacts():
     arimax_fit = joblib.load(os.path.join(ARTIFACT_DIR, "final_arimax_fit.pkl"))
     scaler = joblib.load(os.path.join(ARTIFACT_DIR, "scaler.pkl"))
     history_df = joblib.load(os.path.join(ARTIFACT_DIR, "history_df.pkl"))
-    lstm_model = tf.keras.models.load_model(os.path.join(ARTIFACT_DIR, "lstm_model.keras"))
+    lstm_model = tf.keras.models.load_model(
+    os.path.join(ARTIFACT_DIR, "lstm_model.keras"),
+    compile=False)
     return metadata, arimax_fit, scaler, history_df, lstm_model
 
 metadata, arimax_fit, scaler, history_df, lstm_model = load_artifacts()
