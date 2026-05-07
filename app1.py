@@ -588,5 +588,9 @@ with tab3:
             with st.spinner("Retraining model..."):
                 retrain_model(new_data)
 
-            st.success("Model retrained successfully. Please refresh the app.")
+            st.success("Model retrained successfully.")
+
+            st.cache_resource.clear()
+
+            st.rerun()
          
