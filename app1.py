@@ -366,18 +366,96 @@ def retrain_model(new_data):
     joblib.dump(scaler_y_new, SCALER_Y_PATH)
     joblib.dump(new_data, HISTORY_PATH)
 
-    updated_artifacts = {
-        "best_order": best_order,
-        "best_weight": best_weight,
-        "lookback": lookback,
-        "target_col": "Polymer_Import",
-        "lstm_features": lstm_features_new,
-        "arimax_exog_cols": arimax_exog_cols_new
-    }
+    updated_artifacts = 
 
-    joblib.dump(updated_artifacts, ARTIFACT_PATH)
+        candidate_weights = np.arange(0, 1.01, 0.01)
+        weight_results = []
+        validation_size = int(len(new_data) * 0.2)
+        validation_df = new_data.iloc[-validation_size:].copy()
+        history_temp = new_data.iloc[:-validation_size].copy()
 
-    return True
+        arimax_preds = []
+        lstm_preds = []
+        actuals = []
+
+        for i in range(len(validation_df)):
+
+            row = validation_df.iloc[[i]]
+
+    # -----------------------------------------
+    # ARIMAX Forecast
+    # -----------------------------------------
+
+            arimax_model = SARIMAX(
+            history_temp["log_y"],
+            exog=history_temp[arimax_exog_cols_new],
+            order=best_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+            )
+
+            arimax_result = arimax_model.fit(disp=False)
+
+            arimax_log_pred = arimax_result.forecast(
+            steps=1,
+            exog=row[arimax_exog_cols_new])
+
+            arimax_level_pred = np.exp(arimax_log_pred.iloc[0])
+
+    # -----------------------------------------
+    # LSTM Forecast
+    # -----------------------------------------
+
+            recent = history_temp[lstm_features_new].iloc[-lookback:]
+            recent_scaled = scaler_X_new.transform(recent)
+            X_next = recent_scaled.reshape(
+                1,
+                lookback,
+                len(lstm_features_new)
+                    )
+
+           lstm_scaled_pred = model.predict(X_next, verbose=0)
+           lstm_level_pred = scaler_y_new.inverse_transform(
+           lstm_scaled_pred
+                )[0, 0]
+
+            arimax_preds.append(arimax_level_pred)
+            lstm_preds.append(lstm_level_pred)
+            actuals.append(row["Polymer_Import"].iloc[0])
+
+            history_temp = pd.concat([history_temp, row])
+
+# =====================================================
+# Search Best Hybrid Weight
+# =====================================================
+
+        for w in candidate_weights:
+
+            hybrid_preds = (
+            w * np.array(lstm_preds)
+            + (1 - w) * np.array(arimax_preds)
+                )
+
+            rmse = np.sqrt(
+            np.mean((np.array(actuals) - hybrid_preds) ** 2)
+                )
+
+            weight_results.append({
+            "weight": w,
+            "rmse": rmse
+                })
+
+            weight_df = pd.DataFrame(weight_results)
+
+            new_best_weight = float(
+            weight_df.sort_values("rmse").iloc[0]["weight"]
+            )
+
+        print("Updated Best Weight:", new_best_weight)
+
+        joblib.dump(updated_artifacts, ARTIFACT_PATH)
+
+        return True
 
 
 # =====================================================
