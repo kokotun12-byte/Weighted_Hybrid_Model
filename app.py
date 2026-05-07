@@ -7,6 +7,8 @@ import joblib
 import tensorflow as tf
 import plotly.graph_objects as go
 from statsmodels.tsa.statespace.sarimax import SARIMAXResults
+from tensorflow.keras.models import load_model
+
 
 st.set_page_config(page_title="Polymer Import Forecast", page_icon="📈", layout="wide")
 
