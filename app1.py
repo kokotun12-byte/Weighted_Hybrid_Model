@@ -352,7 +352,7 @@ def retrain_model(new_data, selected_order):
     model.fit(
         X,
         y,
-        epochs=100,
+        epochs=200,
         batch_size=8,
         validation_split=0.2,
         callbacks=[early_stop],
@@ -369,7 +369,7 @@ def retrain_model(new_data, selected_order):
 # =====================================================
 # Recalculate Hybrid Weight
 # =====================================================
-    candidate_weights = np.arange(0, 1.01, 0.01)
+    candidate_weights = np.arange(0, 1.01, 0.005)
     weight_results = []
     validation_size = int(len(new_data) * 0.2)
     validation_df = new_data.iloc[-validation_size:].copy()
