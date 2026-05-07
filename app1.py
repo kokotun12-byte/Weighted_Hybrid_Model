@@ -441,22 +441,18 @@ def retrain_model(new_data):
             + (1 - w) * np.array(arimax_preds)
                 )
 
-                rmse = np.sqrt(
-                np.mean((np.array(actuals) - hybrid_preds) ** 2)
-            )
+            rmse = np.sqrt(np.mean((np.array(actuals) - hybrid_preds) ** 2))
 
             weight_results.append({
-            "weight": w,
-            "rmse": rmse
-            })
+                "weight": w,
+                "rmse": rmse
+                })
 
             weight_df = pd.DataFrame(weight_results)
 
-            new_best_weight = float(
-            weight_df.sort_values("rmse").iloc[0]["weight"]
-            )
+            new_best_weight = float( weight_df.sort_values("rmse").iloc[0]["weight"] )
 
-        print("Updated Best Weight:", new_best_weight)
+            print("Updated Best Weight:", new_best_weight)
     updated_artifacts = {
     "best_order": best_order,
     "best_weight": best_weight,
