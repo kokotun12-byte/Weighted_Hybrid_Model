@@ -413,7 +413,11 @@ tab1, tab2, tab3 = st.tabs([
 with tab1:
     st.subheader("Manual Forecast Input")
 
-    st.info("Manual input is allowed for maximum 3 months. Please select month from dropdown.")
+    st.info(
+        "Manual input allows maximum 3 months. "
+        "Please select months from Jan to Dec. "
+        "Months must be in order and duplicate months are not allowed."
+    )
 
     current_year = datetime.now().year
 
@@ -432,103 +436,110 @@ with tab1:
         "Dec": 12
     }
 
-    manual_rows = []
-
     num_months = st.selectbox(
-        "How many months do you want to forecast?",
+        "Number of months to forecast",
         options=[1, 2, 3],
         index=0
     )
 
+    manual_rows = []
+    selected_month_nums = []
+
     for i in range(num_months):
-        st.markdown(f"### Forecast Month {i + 1}")
+        st.markdown(f"### Forecast Input {i + 1}")
 
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             year = st.text_input(
-                f"Year",
+                f"Year {i + 1}",
                 value=str(current_year),
                 key=f"manual_year_{i}"
             )
 
         with col2:
-            selected_month = st.selectbox(
-                "Month",
+            month_name = st.selectbox(
+                f"Month {i + 1}",
                 options=list(month_options.keys()),
                 key=f"manual_month_{i}"
             )
 
         with col3:
             wti = st.text_input(
-                "WTI Price",
+                f"WTI Price {i + 1}",
                 key=f"manual_wti_{i}"
             )
 
         with col4:
             exchange = st.text_input(
-                "Exchange Rate",
+                f"Exchange Rate {i + 1}",
                 key=f"manual_exchange_{i}"
             )
+
+        month_num = month_options[month_name]
+        selected_month_nums.append(month_num)
 
         if wti.strip() != "" and exchange.strip() != "":
             try:
                 manual_rows.append({
                     "Year": int(year),
-                    "Month": month_options[selected_month],
+                    "Month": month_num,
                     "WTI_Price": float(wti),
                     "Exchange_Rate": float(exchange)
                 })
             except ValueError:
-                st.error(f"Please enter valid numeric values for Forecast Month {i + 1}.")
+                st.error(f"Please enter valid numeric values for Forecast Input {i + 1}.")
+
+    # -----------------------------
+    # Month validation
+    # -----------------------------
+
+    if len(selected_month_nums) != len(set(selected_month_nums)):
+        st.error("Duplicate months are not allowed. Please select different months.")
+
+    if selected_month_nums != sorted(selected_month_nums):
+        st.error("Months must be selected in chronological order, for example Jan, Feb, Mar.")
 
     if st.button("Forecast Manual Input", use_container_width=True):
-        if len(manual_rows) == 0:
-            st.warning("Please enter at least one month of WTI Price and Exchange Rate.")
-        else:
-            input_df = pd.DataFrame(manual_rows)
 
-            future_df = prepare_future_df(input_df)
-            validate_future_dates(future_df)
+        if len(selected_month_nums) != len(set(selected_month_nums)):
+            st.error("Duplicate months are not allowed.")
+            st.stop()
 
-            with st.spinner("Forecasting..."):
-                forecast_df = forecast_hybrid(future_df)
+        if selected_month_nums != sorted(selected_month_nums):
+            st.error("Months must be selected in chronological order.")
+            st.stop()
 
-            st.success("Forecast completed.")
+        if len(manual_rows) != num_months:
+            st.warning("Please complete WTI Price and Exchange Rate for all selected months.")
+            st.stop()
 
-            forecast_df["Month"] = forecast_df["Date"].dt.strftime("%b")
-            forecast_df["Year"] = forecast_df["Date"].dt.year
+        input_df = pd.DataFrame(manual_rows)
 
-            display_cols = [
-                "Year",
-                "Month",
-                "WTI_Price",
-                "Exchange_Rate",
-                "ARIMAX_Forecast",
-                "LSTM_Forecast",
-                "Weighted_Hybrid_Forecast"
-            ]
+        future_df = prepare_future_df(input_df)
+        validate_future_dates(future_df)
 
-            st.dataframe(
-                forecast_df[display_cols],
-                use_container_width=True
-            )
+        with st.spinner("Forecasting..."):
+            forecast_df = forecast_hybrid(future_df)
 
-            plot_forecast(forecast_df)
+        st.success("Forecast completed.")
 
-            excel_buffer = dataframe_to_excel_bytes(
-                forecast_df[display_cols],
-                sheet_name="Manual_Forecast"
-            )
+        st.dataframe(forecast_df, use_container_width=True)
 
-            st.download_button(
-                label="Download Forecast Excel",
-                data=excel_buffer,
-                file_name="manual_forecast_result.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+        plot_forecast(forecast_df)
 
+        excel_buffer = dataframe_to_excel_bytes(
+            forecast_df,
+            sheet_name="Manual_Forecast"
+        )
+
+        st.download_button(
+            label="Download Forecast Excel",
+            data=excel_buffer,
+            file_name="manual_forecast_result.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 # =====================================================
 # TAB 2: Excel Forecast
 # =====================================================
