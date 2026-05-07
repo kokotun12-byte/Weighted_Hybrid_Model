@@ -147,7 +147,13 @@ def recursive_forecast(future_input):
         "Hybrid_Forecast": hybrid_level
     })
     return result
+from io import BytesIO
 
+def convert_df_to_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Input_Template")
+    return output.getvalue()
 # -----------------------------
 # Sidebar
 # -----------------------------
@@ -158,10 +164,13 @@ with st.sidebar:
     st.write(f"ARIMAX weight: **{1-BEST_WEIGHT:.2f}**")
     st.write(f"Lookback: **{LOOKBACK} months**")
     st.divider()
+    template_df = make_template()
+    template_excel = convert_df_to_excel(template_df)
+
     st.download_button(
-        "⬇️ Download Excel Template",
-        data=make_template().to_excel(index=False, engine="openpyxl"),
-        file_name="future_input_template.xlsx",
+        label="📥 Download Excel Template",
+        data=template_excel,
+        file_name="forecast_input_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
