@@ -413,52 +413,74 @@ tab1, tab2, tab3 = st.tabs([
 with tab1:
     st.subheader("Manual Forecast Input")
 
-    st.info("Manual input is fixed for Jan, Feb, and Mar only. Month is not numerical.")
+    st.info("Manual input is allowed for maximum 3 months. Please select month from dropdown.")
 
     current_year = datetime.now().year
 
+    month_options = {
+        "Jan": 1,
+        "Feb": 2,
+        "Mar": 3,
+        "Apr": 4,
+        "May": 5,
+        "Jun": 6,
+        "Jul": 7,
+        "Aug": 8,
+        "Sep": 9,
+        "Oct": 10,
+        "Nov": 11,
+        "Dec": 12
+    }
+
     manual_rows = []
 
-    months = [
-        ("Jan", 1),
-        ("Feb", 2),
-        ("Mar", 3)
-    ]
+    num_months = st.selectbox(
+        "How many months do you want to forecast?",
+        options=[1, 2, 3],
+        index=0
+    )
 
-    for month_name, month_num in months:
-        st.markdown(f"### {month_name}")
+    for i in range(num_months):
+        st.markdown(f"### Forecast Month {i + 1}")
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             year = st.text_input(
-                f"Year for {month_name}",
+                f"Year",
                 value=str(current_year),
-                key=f"year_{month_name}"
+                key=f"manual_year_{i}"
             )
 
         with col2:
-            wti = st.text_input(
-                f"WTI Price for {month_name}",
-                key=f"wti_{month_name}"
+            selected_month = st.selectbox(
+                "Month",
+                options=list(month_options.keys()),
+                key=f"manual_month_{i}"
             )
 
         with col3:
+            wti = st.text_input(
+                "WTI Price",
+                key=f"manual_wti_{i}"
+            )
+
+        with col4:
             exchange = st.text_input(
-                f"Exchange Rate for {month_name}",
-                key=f"exchange_{month_name}"
+                "Exchange Rate",
+                key=f"manual_exchange_{i}"
             )
 
         if wti.strip() != "" and exchange.strip() != "":
             try:
                 manual_rows.append({
                     "Year": int(year),
-                    "Month": month_num,
+                    "Month": month_options[selected_month],
                     "WTI_Price": float(wti),
                     "Exchange_Rate": float(exchange)
                 })
             except ValueError:
-                st.error(f"Please enter valid values for {month_name}.")
+                st.error(f"Please enter valid numeric values for Forecast Month {i + 1}.")
 
     if st.button("Forecast Manual Input", use_container_width=True):
         if len(manual_rows) == 0:
@@ -474,12 +496,28 @@ with tab1:
 
             st.success("Forecast completed.")
 
-            st.dataframe(forecast_df, use_container_width=True)
+            forecast_df["Month"] = forecast_df["Date"].dt.strftime("%b")
+            forecast_df["Year"] = forecast_df["Date"].dt.year
+
+            display_cols = [
+                "Year",
+                "Month",
+                "WTI_Price",
+                "Exchange_Rate",
+                "ARIMAX_Forecast",
+                "LSTM_Forecast",
+                "Weighted_Hybrid_Forecast"
+            ]
+
+            st.dataframe(
+                forecast_df[display_cols],
+                use_container_width=True
+            )
 
             plot_forecast(forecast_df)
 
             excel_buffer = dataframe_to_excel_bytes(
-                forecast_df,
+                forecast_df[display_cols],
                 sheet_name="Manual_Forecast"
             )
 
@@ -490,7 +528,6 @@ with tab1:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-
 
 # =====================================================
 # TAB 2: Excel Forecast
