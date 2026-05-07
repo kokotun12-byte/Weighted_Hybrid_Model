@@ -404,16 +404,23 @@ with tab1:
 
             st.plotly_chart(fig, use_container_width=True)
 
-            output = forecast_df.to_excel(index=False)
+            from io import BytesIO
+
+            excel_buffer = BytesIO()
+
+            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            forecast_df.to_excel(writer, index=False, sheet_name="Forecast_Result")
+
+            excel_buffer.seek(0)
 
             st.download_button(
                 label="Download Forecast Excel",
-                data=forecast_df.to_csv(index=False).encode("utf-8"),
-                file_name="manual_forecast_result.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+                data=excel_buffer,
+                file_name="manual_forecast_result.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True )
 
+           
 
 # =====================================================
 # TAB 2: Excel Forecast
