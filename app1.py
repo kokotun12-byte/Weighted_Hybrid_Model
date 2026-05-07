@@ -408,55 +408,55 @@ def retrain_model(new_data):
     # LSTM Forecast
     # -----------------------------------------
 
-    recent = history_temp[lstm_features_new].iloc[-lookback:]
+        recent = history_temp[lstm_features_new].iloc[-lookback:]
 
-    recent_scaled = scaler_X_new.transform(recent)
+        recent_scaled = scaler_X_new.transform(recent)
 
-    X_next = recent_scaled.reshape(
-        1,
-        lookback,
-        len(lstm_features_new)
-    )
+        X_next = recent_scaled.reshape(
+            1,
+            lookback,
+            len(lstm_features_new)
+            )
 
-    lstm_scaled_pred = model.predict(X_next, verbose=0)
+        lstm_scaled_pred = model.predict(X_next, verbose=0)
 
-    lstm_level_pred = scaler_y_new.inverse_transform(
+        lstm_level_pred = scaler_y_new.inverse_transform(
         lstm_scaled_pred
-    )[0, 0]
+            )[0, 0]
 
-    arimax_preds.append(arimax_level_pred)
-    lstm_preds.append(lstm_level_pred)
-    actuals.append(row["Polymer_Import"].iloc[0])
+        arimax_preds.append(arimax_level_pred)
+        lstm_preds.append(lstm_level_pred)
+        actuals.append(row["Polymer_Import"].iloc[0])
 
-    history_temp = pd.concat([history_temp, row])
+        history_temp = pd.concat([history_temp, row])
 
 # =====================================================
 # Search Best Hybrid Weight
 # =====================================================
 
-    for w in candidate_weights:
+        for w in candidate_weights:
 
-        hybrid_preds = (
-        w * np.array(lstm_preds)
-        + (1 - w) * np.array(arimax_preds)
-        )
+            hybrid_preds = (
+            w * np.array(lstm_preds)
+            + (1 - w) * np.array(arimax_preds)
+                )
 
-        rmse = np.sqrt(
-        np.mean((np.array(actuals) - hybrid_preds) ** 2)
-        )
+                rmse = np.sqrt(
+                np.mean((np.array(actuals) - hybrid_preds) ** 2)
+            )
 
-        weight_results.append({
-        "weight": w,
-        "rmse": rmse
-        })
+            weight_results.append({
+            "weight": w,
+            "rmse": rmse
+            })
 
-        weight_df = pd.DataFrame(weight_results)
+            weight_df = pd.DataFrame(weight_results)
 
-        new_best_weight = float(
-        weight_df.sort_values("rmse").iloc[0]["weight"]
-    )
+            new_best_weight = float(
+            weight_df.sort_values("rmse").iloc[0]["weight"]
+            )
 
-print("Updated Best Weight:", new_best_weight)
+        print("Updated Best Weight:", new_best_weight)
     updated_artifacts = {
     "best_order": best_order,
     "best_weight": best_weight,
