@@ -290,7 +290,7 @@ def plot_forecast(forecast_df):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def retrain_model(new_data):
+def retrain_model(new_data, selected_order):
     new_data = new_data.copy()
 
     required_cols = ["Date", "WTI_Price", "Exchange_Rate", "Polymer_Import"]
@@ -352,7 +352,7 @@ def retrain_model(new_data):
     model.fit(
         X,
         y,
-        epochs=200,
+        epochs=100,
         batch_size=8,
         validation_split=0.2,
         callbacks=[early_stop],
@@ -390,7 +390,7 @@ def retrain_model(new_data):
         arimax_model = SARIMAX(
         history_temp["log_y"],
         exog=history_temp[arimax_exog_cols_new],
-        order=best_order,
+        order=selected_order,
         enforce_stationarity=False,
         enforce_invertibility=False
         )
@@ -454,7 +454,7 @@ def retrain_model(new_data):
 
             print("Updated Best Weight:", new_best_weight)
     updated_artifacts = {
-    "best_order": best_order,
+    "best_order": selected_order,
     "best_weight": new_best_weight,
     "lookback": lookback,
     "target_col": "Polymer_Import",
@@ -700,12 +700,51 @@ with tab3:
     st.warning(
         "Upload updated historical data with Date, WTI_Price, Exchange_Rate, and Polymer_Import."
     )
+    # =====================================================
+    # ARIMAX order input
+    # =====================================================
 
+    st.markdown("### ARIMAX Order Selection")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        retrain_p = st.number_input(
+            "AR Order (p)",
+            min_value=0,
+            max_value=5,
+            value=int(best_order[0]),
+            step=1
+            )
+
+    with col2:
+        retrain_d = st.number_input(
+            "Differencing Order (d)",
+            min_value=0,
+            max_value=2,
+            value=int(best_order[1]),
+            step=1
+            )
+
+    with col3:
+        retrain_q = st.number_input(
+            "MA Order (q)",
+            min_value=0,
+            max_value=5,
+            value=int(best_order[2]),
+            step=1
+            )
+
+    selected_order = (
+        int(retrain_p),
+        int(retrain_d),
+        int(retrain_q))
+
+    st.info(f"Selected ARIMAX Order: {selected_order}")
     retrain_file = st.file_uploader(
         "Upload updated historical dataset",
         type=["xlsx", "csv"],
-        key="retrain_upload"
-    )
+        key="retrain_upload")
 
     if retrain_file is not None:
         if retrain_file.name.endswith(".csv"):
@@ -718,7 +757,7 @@ with tab3:
 
         if st.button("Retrain Model", use_container_width=True):
             with st.spinner("Retraining model..."):
-                retrain_model(new_data)
+                retrain_model(new_data, selected_order)
 
             st.success("Model retrained successfully.")
 
