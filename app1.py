@@ -1,10 +1,17 @@
+# =====================================================
+# app1.py
+# Weighted Average Hybrid ARIMAX-LSTM Streamlit App
+# =====================================================
+
 import os
+from io import BytesIO
+from datetime import datetime
+
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from datetime import datetime
 
 from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -16,7 +23,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 
 
 # =====================================================
-# Page config
+# Streamlit page setting
 # =====================================================
 
 st.set_page_config(
@@ -32,21 +39,15 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.main {
-    background-color: #f8fafc;
-}
-
 .block-container {
-    padding-top: 1.5rem;
+    padding-top: 1.2rem;
     padding-bottom: 2rem;
 }
 
-.metric-card {
-    background-color: white;
-    padding: 18px;
-    border-radius: 16px;
-    box-shadow: 0px 2px 10px rgba(0,0,0,0.06);
-    text-align: center;
+.stButton button {
+    border-radius: 10px;
+    height: 3em;
+    font-weight: 600;
 }
 
 @media only screen and (max-width: 768px) {
@@ -54,8 +55,13 @@ st.markdown("""
         padding-left: 1rem;
         padding-right: 1rem;
     }
+
     h1 {
-        font-size: 1.6rem !important;
+        font-size: 1.5rem !important;
+    }
+
+    h2, h3 {
+        font-size: 1.1rem !important;
     }
 }
 </style>
@@ -63,7 +69,7 @@ st.markdown("""
 
 
 # =====================================================
-# Paths
+# Artifact paths
 # =====================================================
 
 ARTIFACT_DIR = "artifacts"
@@ -76,7 +82,7 @@ LSTM_PATH = os.path.join(ARTIFACT_DIR, "lstm_model.keras")
 
 
 # =====================================================
-# Load artifacts
+# Load saved model artifacts
 # =====================================================
 
 @st.cache_resource
@@ -90,7 +96,13 @@ def load_artifacts():
     return history_df, artifacts, scaler_X, scaler_y, lstm_model
 
 
-history_df, artifacts, scaler_X, scaler_y, lstm_model = load_artifacts()
+try:
+    history_df, artifacts, scaler_X, scaler_y, lstm_model = load_artifacts()
+except Exception as e:
+    st.error("Model artifacts could not be loaded. Please check the artifacts folder.")
+    st.exception(e)
+    st.stop()
+
 
 best_order = artifacts["best_order"]
 best_weight = artifacts["best_weight"]
@@ -104,18 +116,33 @@ arimax_exog_cols = artifacts["arimax_exog_cols"]
 # Helper functions
 # =====================================================
 
+def dataframe_to_excel_bytes(df, sheet_name="Forecast_Result"):
+    buffer = BytesIO()
+
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+
+    buffer.seek(0)
+    return buffer
+
+
 def prepare_future_df(input_df):
     df_future = input_df.copy()
 
     if "Date" not in df_future.columns:
         df_future["Date"] = pd.to_datetime(
-            df_future["Year"].astype(str) + "-" +
-            df_future["Month"].astype(str) + "-01"
+            df_future["Year"].astype(str)
+            + "-"
+            + df_future["Month"].astype(str)
+            + "-01"
         )
     else:
         df_future["Date"] = pd.to_datetime(df_future["Date"])
 
     df_future = df_future.sort_values("Date").reset_index(drop=True)
+
+    df_future["WTI_Price"] = pd.to_numeric(df_future["WTI_Price"])
+    df_future["Exchange_Rate"] = pd.to_numeric(df_future["Exchange_Rate"])
 
     df_future["log_WTI_Price"] = np.log(df_future["WTI_Price"])
     df_future["log_Exchange_Rate"] = np.log(df_future["Exchange_Rate"])
@@ -134,8 +161,12 @@ def validate_future_dates(df_future):
         st.error(f"Year is allowed only within the current year: {current_year}.")
         st.stop()
 
-    if df_future["Date"].dt.month.max() > 12:
-        st.error("Month must be within January to December.")
+    if df_future["Date"].duplicated().any():
+        st.error("Duplicate months are not allowed.")
+        st.stop()
+
+    if (df_future["WTI_Price"] <= 0).any() or (df_future["Exchange_Rate"] <= 0).any():
+        st.error("WTI Price and Exchange Rate must be greater than zero.")
         st.stop()
 
 
@@ -144,11 +175,10 @@ def forecast_hybrid(future_df):
     results = []
 
     for i in range(len(future_df)):
-
         row = future_df.iloc[[i]]
 
         # -----------------------------
-        # ARIMAX log forecast
+        # ARIMAX forecast in log scale
         # -----------------------------
         arimax_model = SARIMAX(
             temp_history["log_y"],
@@ -165,7 +195,7 @@ def forecast_hybrid(future_df):
             exog=row[arimax_exog_cols]
         )
 
-        arimax_level_pred = np.exp(arimax_log_pred.iloc[0])
+        arimax_level_pred = float(np.exp(arimax_log_pred.iloc[0]))
 
         # -----------------------------
         # Standalone LSTM forecast
@@ -174,14 +204,20 @@ def forecast_hybrid(future_df):
 
         recent_scaled = scaler_X.transform(recent)
 
-        X_next = recent_scaled.reshape(1, lookback, len(lstm_features))
+        X_next = recent_scaled.reshape(
+            1,
+            lookback,
+            len(lstm_features)
+        )
 
         lstm_scaled_pred = lstm_model.predict(X_next, verbose=0)
 
-        lstm_level_pred = scaler_y.inverse_transform(lstm_scaled_pred)[0, 0]
+        lstm_level_pred = float(
+            scaler_y.inverse_transform(lstm_scaled_pred)[0, 0]
+        )
 
         # -----------------------------
-        # Weighted hybrid
+        # Weighted Average Hybrid
         # -----------------------------
         hybrid_pred = (
             best_weight * lstm_level_pred
@@ -192,9 +228,9 @@ def forecast_hybrid(future_df):
             "Date": row["Date"].iloc[0],
             "WTI_Price": row["WTI_Price"].iloc[0],
             "Exchange_Rate": row["Exchange_Rate"].iloc[0],
-            "ARIMAX_Forecast": arimax_level_pred,
-            "LSTM_Forecast": lstm_level_pred,
-            "Weighted_Hybrid_Forecast": hybrid_pred
+            "ARIMAX_Forecast": round(arimax_level_pred, 2),
+            "LSTM_Forecast": round(lstm_level_pred, 2),
+            "Weighted_Hybrid_Forecast": round(hybrid_pred, 2)
         })
 
         # Recursive update using predicted hybrid value
@@ -215,35 +251,75 @@ def forecast_hybrid(future_df):
 def create_template():
     current_year = datetime.now().year
 
-    template = pd.DataFrame({
-        "Year": [current_year, current_year, current_year],
-        "Month": [1, 2, 3],
-        "WTI_Price": [60, 65, 70],
-        "Exchange_Rate": [3600, 3650, 3700]
+    template_df = pd.DataFrame({
+        "Year": [current_year] * 12,
+        "Month": list(range(1, 13)),
+        "WTI_Price": [60] * 12,
+        "Exchange_Rate": [3600] * 12
     })
 
-    return template
+    return template_df
+
+
+def plot_forecast(forecast_df):
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=history_df.index,
+        y=history_df[target_col],
+        mode="lines",
+        name="Historical Polymer Import"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=forecast_df["Date"],
+        y=forecast_df["Weighted_Hybrid_Forecast"],
+        mode="lines+markers",
+        name="Hybrid Forecast"
+    ))
+
+    fig.update_layout(
+        title="Historical Polymer Import and Forecast",
+        xaxis_title="Date",
+        yaxis_title="Polymer Import",
+        template="plotly_white",
+        height=520,
+        legend=dict(orientation="h")
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def retrain_model(new_data):
     new_data = new_data.copy()
+
+    required_cols = ["Date", "WTI_Price", "Exchange_Rate", "Polymer_Import"]
+
+    missing_cols = [col for col in required_cols if col not in new_data.columns]
+
+    if missing_cols:
+        st.error(f"Missing columns: {missing_cols}")
+        st.stop()
+
     new_data["Date"] = pd.to_datetime(new_data["Date"])
     new_data = new_data.sort_values("Date").set_index("Date")
+
+    new_data["WTI_Price"] = pd.to_numeric(new_data["WTI_Price"])
+    new_data["Exchange_Rate"] = pd.to_numeric(new_data["Exchange_Rate"])
+    new_data["Polymer_Import"] = pd.to_numeric(new_data["Polymer_Import"])
 
     new_data["log_y"] = np.log(new_data["Polymer_Import"])
     new_data["log_WTI_Price"] = np.log(new_data["WTI_Price"])
     new_data["log_Exchange_Rate"] = np.log(new_data["Exchange_Rate"])
 
-    lstm_features = ["Polymer_Import", "WTI_Price", "Exchange_Rate"]
-    arimax_exog_cols = ["log_WTI_Price", "log_Exchange_Rate"]
+    lstm_features_new = ["Polymer_Import", "WTI_Price", "Exchange_Rate"]
+    arimax_exog_cols_new = ["log_WTI_Price", "log_Exchange_Rate"]
 
     scaler_X_new = MinMaxScaler()
     scaler_y_new = MinMaxScaler()
 
-    scaled_X = scaler_X_new.fit_transform(new_data[lstm_features])
+    scaled_X = scaler_X_new.fit_transform(new_data[lstm_features_new])
     scaled_y = scaler_y_new.fit_transform(new_data[["Polymer_Import"]])
-
-    lookback = 12
 
     X, y = [], []
 
@@ -253,6 +329,10 @@ def retrain_model(new_data):
 
     X = np.array(X)
     y = np.array(y)
+
+    if len(X) == 0:
+        st.error("Not enough data for retraining. At least more than 12 months are required.")
+        st.stop()
 
     model = Sequential([
         LSTM(64, activation="tanh", input_shape=(lookback, 3)),
@@ -291,8 +371,8 @@ def retrain_model(new_data):
         "best_weight": best_weight,
         "lookback": lookback,
         "target_col": "Polymer_Import",
-        "lstm_features": lstm_features,
-        "arimax_exog_cols": arimax_exog_cols
+        "lstm_features": lstm_features_new,
+        "arimax_exog_cols": arimax_exog_cols_new
     }
 
     joblib.dump(updated_artifacts, ARTIFACT_PATH)
@@ -301,11 +381,23 @@ def retrain_model(new_data):
 
 
 # =====================================================
-# UI
+# Main UI
 # =====================================================
 
 st.title("📈 Polymer Import Forecasting Dashboard")
-st.caption("Weighted Average Hybrid ARIMAX-LSTM Forecasting Model")
+st.caption("Weighted Average Hybrid ARIMAX-LSTM Model")
+
+col_a, col_b, col_c = st.columns(3)
+
+with col_a:
+    st.metric("Best LSTM Weight", round(best_weight, 2))
+
+with col_b:
+    st.metric("Best ARIMAX Weight", round(1 - best_weight, 2))
+
+with col_c:
+    st.metric("ARIMAX Order", str(best_order))
+
 
 tab1, tab2, tab3 = st.tabs([
     "Manual Forecast",
@@ -321,7 +413,7 @@ tab1, tab2, tab3 = st.tabs([
 with tab1:
     st.subheader("Manual Forecast Input")
 
-    st.info("Manual input is allowed for maximum 3 months only: Jan, Feb, and Mar.")
+    st.info("Manual input is fixed for Jan, Feb, and Mar only. Month is not numerical.")
 
     current_year = datetime.now().year
 
@@ -354,73 +446,51 @@ with tab1:
         with col3:
             exchange = st.text_input(
                 f"Exchange Rate for {month_name}",
-                key=f"ex_{month_name}"
+                key=f"exchange_{month_name}"
             )
 
-        if wti and exchange:
-            manual_rows.append({
-                "Year": int(year),
-                "Month": month_num,
-                "WTI_Price": float(wti),
-                "Exchange_Rate": float(exchange)
-            })
+        if wti.strip() != "" and exchange.strip() != "":
+            try:
+                manual_rows.append({
+                    "Year": int(year),
+                    "Month": month_num,
+                    "WTI_Price": float(wti),
+                    "Exchange_Rate": float(exchange)
+                })
+            except ValueError:
+                st.error(f"Please enter valid values for {month_name}.")
 
     if st.button("Forecast Manual Input", use_container_width=True):
         if len(manual_rows) == 0:
-            st.warning("Please enter at least one month of WTI and exchange rate.")
+            st.warning("Please enter at least one month of WTI Price and Exchange Rate.")
         else:
             input_df = pd.DataFrame(manual_rows)
+
             future_df = prepare_future_df(input_df)
             validate_future_dates(future_df)
 
-            forecast_df = forecast_hybrid(future_df)
+            with st.spinner("Forecasting..."):
+                forecast_df = forecast_hybrid(future_df)
 
             st.success("Forecast completed.")
+
             st.dataframe(forecast_df, use_container_width=True)
 
-            fig = go.Figure()
+            plot_forecast(forecast_df)
 
-            fig.add_trace(go.Scatter(
-                x=history_df.index,
-                y=history_df[target_col],
-                mode="lines",
-                name="Historical Polymer Import"
-            ))
-
-            fig.add_trace(go.Scatter(
-                x=forecast_df["Date"],
-                y=forecast_df["Weighted_Hybrid_Forecast"],
-                mode="lines+markers",
-                name="Hybrid Forecast"
-            ))
-
-            fig.update_layout(
-                title="Historical Series and Forecast",
-                xaxis_title="Date",
-                yaxis_title="Polymer Import",
-                template="plotly_white",
-                height=500
+            excel_buffer = dataframe_to_excel_bytes(
+                forecast_df,
+                sheet_name="Manual_Forecast"
             )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-            from io import BytesIO
-
-            excel_buffer = BytesIO()
-
-            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-            forecast_df.to_excel(writer, index=False, sheet_name="Forecast_Result")
-
-            excel_buffer.seek(0)
 
             st.download_button(
                 label="Download Forecast Excel",
                 data=excel_buffer,
                 file_name="manual_forecast_result.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True )
+                use_container_width=True
+            )
 
-           
 
 # =====================================================
 # TAB 2: Excel Forecast
@@ -433,17 +503,23 @@ with tab2:
 
     template_df = create_template()
 
+    template_buffer = dataframe_to_excel_bytes(
+        template_df,
+        sheet_name="Forecast_Template"
+    )
+
     st.download_button(
         label="Download Excel Template",
-        data=template_df.to_csv(index=False).encode("utf-8"),
-        file_name="forecast_template.csv",
-        mime="text/csv",
+        data=template_buffer,
+        file_name="forecast_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
 
     uploaded_file = st.file_uploader(
         "Upload forecast input file",
-        type=["xlsx", "csv"]
+        type=["xlsx", "csv"],
+        key="forecast_upload"
     )
 
     if uploaded_file is not None:
@@ -459,48 +535,31 @@ with tab2:
             future_df = prepare_future_df(input_df)
             validate_future_dates(future_df)
 
-            forecast_df = forecast_hybrid(future_df)
+            with st.spinner("Forecasting..."):
+                forecast_df = forecast_hybrid(future_df)
 
             st.success("Forecast completed.")
+
             st.dataframe(forecast_df, use_container_width=True)
 
-            fig = go.Figure()
+            plot_forecast(forecast_df)
 
-            fig.add_trace(go.Scatter(
-                x=history_df.index,
-                y=history_df[target_col],
-                mode="lines",
-                name="Historical Polymer Import"
-            ))
-
-            fig.add_trace(go.Scatter(
-                x=forecast_df["Date"],
-                y=forecast_df["Weighted_Hybrid_Forecast"],
-                mode="lines+markers",
-                name="Hybrid Forecast"
-            ))
-
-            fig.update_layout(
-                title="Historical Series and Forecast",
-                xaxis_title="Date",
-                yaxis_title="Polymer Import",
-                template="plotly_white",
-                height=500
+            excel_buffer = dataframe_to_excel_bytes(
+                forecast_df,
+                sheet_name="Excel_Forecast"
             )
-
-            st.plotly_chart(fig, use_container_width=True)
 
             st.download_button(
                 label="Download Forecast Excel",
-                data=forecast_df.to_csv(index=False).encode("utf-8"),
-                file_name="excel_forecast_result.csv",
-                mime="text/csv",
+                data=excel_buffer,
+                file_name="excel_forecast_result.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
 
 # =====================================================
-# TAB 3: Retrain model
+# TAB 3: Retrain Model
 # =====================================================
 
 with tab3:
@@ -513,7 +572,7 @@ with tab3:
     retrain_file = st.file_uploader(
         "Upload updated historical dataset",
         type=["xlsx", "csv"],
-        key="retrain_file"
+        key="retrain_upload"
     )
 
     if retrain_file is not None:
@@ -522,6 +581,7 @@ with tab3:
         else:
             new_data = pd.read_excel(retrain_file)
 
+        st.write("Preview of uploaded data")
         st.dataframe(new_data.tail(), use_container_width=True)
 
         if st.button("Retrain Model", use_container_width=True):
@@ -529,3 +589,4 @@ with tab3:
                 retrain_model(new_data)
 
             st.success("Model retrained successfully. Please refresh the app.")
+         
