@@ -455,7 +455,7 @@ def retrain_model(new_data):
             print("Updated Best Weight:", new_best_weight)
     updated_artifacts = {
     "best_order": best_order,
-    "best_weight": best_weight,
+    "best_weight": new_best_weight,
     "lookback": lookback,
     "target_col": "Polymer_Import",
     "lstm_features": lstm_features_new,
